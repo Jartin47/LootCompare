@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: Loot Compare
+## Notes: Compares newly looted gear to what you have equipped. Equip from the window, right-click to dismiss one, X to dismiss all.
+## Author: You
+## Version: 1.3.0
+## SavedVariables: LootCompareDB
+
+LootCompare.lua

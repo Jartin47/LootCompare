@@ -46,6 +46,12 @@ to turn the filter off and see every usable drop.
 - **Queue** – several drops line up with `<` and `>` buttons. Items you sell,
   bank or equip drop out on their own.
 - **Combat** – the window hides during combat and returns afterwards.
+- **Options window** – tick boxes for popups, the upgrade filter, hiding in
+  combat and the minimap button, plus buttons to preview the window and reset
+  its position. Open it from the minimap button, by typing `/lcomp`, or from
+  the game's Options > AddOns list.
+- **Minimap button** – left-click opens the options, right-click turns popups
+  on or off, drag moves it around the minimap.
 
 ## Install
 
@@ -85,6 +91,9 @@ above. Your settings are kept.
 
 | Command | Effect |
 |---|---|
+| `/lcomp` | Open or close the options window |
+| `/lcomp help` | List the commands in chat |
+| `/lcomp minimap` | Show or hide the minimap button |
 | `/lcomp test` | Preview using up to 3 items from your bags |
 | `/lcomp filter` | Toggle the upgrade filter |
 | `/lcomp combat` | Toggle hiding the window during combat |

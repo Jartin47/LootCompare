@@ -614,6 +614,227 @@ local function PruneEquipped()
     end
 end
 
+---------------------------------------------------------------------------
+-- Minimap button: left-click opens the options, right-click turns popups
+-- on/off, drag moves it around the rim.
+---------------------------------------------------------------------------
+local minimapButton
+local ToggleOptions, RefreshOptions
+
+local function MinimapRadius()
+    local w = Minimap:GetWidth() or 140
+    local h = Minimap:GetHeight() or w
+    return math.min(w, h) / 2 + 5
+end
+
+local function PlaceMinimapButton()
+    local angle = math.rad(LootCompareDB.minimapAngle or 205)
+    local r = MinimapRadius()
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * r, math.sin(angle) * r)
+end
+
+local function ApplyMinimap()
+    if not minimapButton then return end
+    if LootCompareDB.hideMinimap then
+        minimapButton:Hide()
+    else
+        PlaceMinimapButton()
+        minimapButton:Show()
+    end
+end
+
+local function SetPopupsEnabled(on)
+    LootCompareDB.enabled = on
+    print(PREFIX .. (on and "enabled" or "disabled"))
+end
+
+local function InitMinimap()
+    if minimapButton or not Minimap then return end
+    local b = CreateFrame("Button", "LootCompareMinimapButton", Minimap)
+    b:SetSize(31, 31)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel(8)
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    bg:SetSize(20, 20)
+    bg:SetPoint("CENTER", 0, 1)
+
+    local icon = b:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon:SetSize(18, 18)
+    icon:SetPoint("CENTER", 0, 1)
+
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            SetPopupsEnabled(not LootCompareDB.enabled)
+            RefreshOptions()
+        else
+            ToggleOptions()
+        end
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("Loot Compare", 1, 0.82, 0)
+        GameTooltip:AddLine("Left-click: options", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: turn popups "
+            .. (LootCompareDB.enabled and "off" or "on"), 1, 1, 1)
+        GameTooltip:AddLine("Drag: move this button", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    b:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local mx, my = Minimap:GetCenter()
+            local px, py = GetCursorPosition()
+            local scale = Minimap:GetEffectiveScale()
+            LootCompareDB.minimapAngle = math.deg(math.atan2(py / scale - my, px / scale - mx))
+            PlaceMinimapButton()
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+    Minimap:HookScript("OnSizeChanged", function()
+        if minimapButton:IsShown() then PlaceMinimapButton() end
+    end)
+
+    minimapButton = b
+    ApplyMinimap()
+end
+
+---------------------------------------------------------------------------
+-- Options window
+---------------------------------------------------------------------------
+local options = CreateFrame("Frame", "LootCompareOptionsFrame", UIParent, "BackdropTemplate")
+options:SetSize(300, 206)
+options:SetPoint("CENTER")
+options:SetBackdrop({
+    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    edgeSize = 14,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+})
+options:SetBackdropColor(0.05, 0.05, 0.07, 0.95)
+options:SetBackdropBorderColor(0.65, 0.55, 0.35, 1)
+options:SetFrameStrata("DIALOG")
+options:SetClampedToScreen(true)
+options:SetMovable(true)
+options:EnableMouse(true)
+options:RegisterForDrag("LeftButton")
+options:SetScript("OnDragStart", options.StartMoving)
+options:SetScript("OnDragStop", options.StopMovingOrSizing)
+options:Hide()
+if UISpecialFrames then table.insert(UISpecialFrames, "LootCompareOptionsFrame") end  -- Esc closes
+
+local optTitle = options:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+optTitle:SetPoint("TOPLEFT", 12, -10)
+optTitle:SetText("Loot Compare options")
+
+local optClose = CreateFrame("Button", nil, options, "UIPanelCloseButton")
+optClose:SetPoint("TOPRIGHT", -2, -2)
+optClose:SetScript("OnClick", function() options:Hide() end)
+
+local checks = {}
+local function MakeCheck(y, label, get, set)
+    local c = CreateFrame("CheckButton", nil, options, "UICheckButtonTemplate")
+    c:SetSize(24, 24)
+    c:SetPoint("TOPLEFT", 10, y)
+    c.label = c:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    c.label:SetPoint("LEFT", c, "RIGHT", 4, 0)
+    c.label:SetText(label)
+    c.get = get
+    c:SetScript("OnClick", function(self)
+        set(self:GetChecked() and true or false)
+        if #queue > 0 then Render() end
+    end)
+    checks[#checks + 1] = c
+end
+
+MakeCheck(-34, "Show popups for new loot",
+    function() return LootCompareDB.enabled end,
+    function(v) LootCompareDB.enabled = v end)
+MakeCheck(-60, "Only show likely upgrades",
+    function() return LootCompareDB.filter end,
+    function(v) LootCompareDB.filter = v end)
+MakeCheck(-86, "Hide the window during combat",
+    function() return LootCompareDB.hideInCombat end,
+    function(v) LootCompareDB.hideInCombat = v end)
+MakeCheck(-112, "Show the minimap button",
+    function() return not LootCompareDB.hideMinimap end,
+    function(v) LootCompareDB.hideMinimap = not v; ApplyMinimap() end)
+
+local function OptionButton(text, point, x, command)
+    local b = CreateFrame("Button", nil, options, "UIPanelButtonTemplate")
+    b:SetSize(132, 22)
+    b:SetText(text)
+    b:SetPoint("BOTTOM" .. point, x, 34)
+    b:SetScript("OnClick", function() SlashCmdList.LOOTCOMPARE(command) end)
+end
+OptionButton("Preview window", "LEFT", 12, "test")
+OptionButton("Reset position", "RIGHT", -12, "reset")
+
+local optHint = options:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+optHint:SetPoint("BOTTOM", 0, 12)
+optHint:SetText("Type /lcomp help for chat commands")
+
+RefreshOptions = function()
+    for _, c in ipairs(checks) do c:SetChecked(c.get() and true or false) end
+end
+options:SetScript("OnShow", RefreshOptions)
+
+ToggleOptions = function()
+    if options:IsShown() then
+        options:Hide()
+    else
+        RefreshOptions()
+        options:Show()
+    end
+end
+
+-- Entry in the game's own Options > AddOns list, pointing at our window
+local function RegisterSettingsPanel()
+    local panel = CreateFrame("Frame")
+    panel.name = "Loot Compare"
+    local t = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    t:SetPoint("TOPLEFT", 16, -16)
+    t:SetText("Loot Compare")
+    local d = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    d:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, -8)
+    d:SetWidth(560)
+    d:SetJustifyH("LEFT")
+    d:SetText("Compares newly looted gear to what you have equipped. Open the options "
+        .. "with the button below, the minimap button, or by typing /lcomp.")
+    local open = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    open:SetSize(180, 22)
+    open:SetText("Open Loot Compare options")
+    open:SetPoint("TOPLEFT", d, "BOTTOMLEFT", 0, -12)
+    open:SetScript("OnClick", function()
+        if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then
+            HideUIPanel(SettingsPanel)
+        end
+        RefreshOptions()
+        options:Show()
+    end)
+
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, "Loot Compare")
+        Settings.RegisterAddOnCategory(category)
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+    end
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -628,6 +849,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if LootCompareDB.enabled == nil then LootCompareDB.enabled = true end
         if LootCompareDB.hideInCombat == nil then LootCompareDB.hideInCombat = true end
         if LootCompareDB.filter == nil then LootCompareDB.filter = true end
+        InitMinimap()
+        RegisterSettingsPanel()
         frame:ClearAllPoints()
         local p = LootCompareDB.point
         if p then
@@ -666,17 +889,26 @@ SLASH_LOOTCOMPARE1 = "/lootcompare"
 SLASH_LOOTCOMPARE2 = "/lcomp"
 SlashCmdList.LOOTCOMPARE = function(msg)
     msg = (msg or ""):lower():match("^%s*(.-)%s*$")
-    if msg == "toggle" then
-        LootCompareDB.enabled = not LootCompareDB.enabled
-        print(PREFIX .. (LootCompareDB.enabled and "enabled" or "disabled"))
+    if msg == "" or msg == "options" or msg == "config" then
+        ToggleOptions()
+    elseif msg == "toggle" then
+        SetPopupsEnabled(not LootCompareDB.enabled)
+        RefreshOptions()
     elseif msg == "combat" then
         LootCompareDB.hideInCombat = not LootCompareDB.hideInCombat
         print(PREFIX .. "hide during combat: " .. (LootCompareDB.hideInCombat and "ON" or "OFF"))
         if #queue > 0 then Render() end
+        RefreshOptions()
     elseif msg == "filter" then
         LootCompareDB.filter = not LootCompareDB.filter
         print(PREFIX .. "upgrade filter: " .. (LootCompareDB.filter
             and "ON (only likely upgrades pop up)" or "OFF (all usable gear pops up)"))
+        RefreshOptions()
+    elseif msg == "minimap" then
+        LootCompareDB.hideMinimap = not LootCompareDB.hideMinimap
+        ApplyMinimap()
+        print(PREFIX .. "minimap button: " .. (LootCompareDB.hideMinimap and "hidden" or "shown"))
+        RefreshOptions()
     elseif msg == "reset" then
         LootCompareDB.point = nil
         frame:ClearAllPoints()
@@ -701,6 +933,8 @@ SlashCmdList.LOOTCOMPARE = function(msg)
         end
     else
         print(PREFIX .. "commands:")
+        print("  /lcomp         - open the options window")
+        print("  /lcomp minimap - show/hide the minimap button")
         print("  /lcomp test   - preview using up to 3 items from your bags")
         print("  /lcomp combat - toggle hiding the window during combat (currently "
             .. (LootCompareDB.hideInCombat and "ON" or "OFF") .. ")")

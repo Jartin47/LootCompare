@@ -5,6 +5,48 @@ Compare drops as they hit your bags.
 Loot Compare watches your bags and, when a new piece of gear lands in them,
 pops up a small window comparing it against what you have equipped in that slot.
 
+## When an item pops up
+
+Only likely upgrades pop up. Each slot is judged on its own against what you are
+wearing there, so the filter tightens by itself as your gear improves: grey and
+white drops still appear while you are levelling in greys and whites, and stop
+once that slot has something better.
+
+| You're wearing | Grey drop | White drop | Green drop | Blue drop | Epic drop |
+|---|---|---|---|---|---|
+| **Nothing** | Always | Always | Always | Always | Always |
+| **Grey** | Higher ilvl | Same ilvl or higher | Same ilvl or higher | Same ilvl or higher | Same ilvl or higher |
+| **White** | Higher ilvl | Higher ilvl | Same ilvl or higher | Same ilvl or higher | Same ilvl or higher |
+| **Green** | Hidden | Higher ilvl | Higher ilvl | Same ilvl or higher | Same ilvl or higher |
+| **Blue** | Hidden | Hidden | Higher ilvl | Higher ilvl | Same ilvl or higher |
+| **Epic** | Hidden | Hidden | Hidden | Higher ilvl | Higher ilvl |
+
+"ilvl" is item level, compared with the item in that slot. In short, a drop pops up when:
+
+- the slot is empty, or
+- it has a higher item level and is at most one quality tier below what you're wearing, or
+- it is higher quality and its item level is not lower.
+
+For rings, trinkets and dual-wielded weapons, the drop is judged against the
+weaker of the pair. Gear your class can't use never pops up. Type `/lcomp filter`
+to turn the filter off and see every usable drop.
+
+## What it shows
+
+- The looted item and the equipped item, with item levels and the difference
+- Every stat you would gain (green) or lose (red) by equipping it
+- For rings, trinkets and dual-wielded weapons, the comparison is against the
+  weaker of the pair
+- For a two-hander, the comparison is against your main hand and off hand together
+
+## What it does
+
+- **Equip button** – equips the item straight from the window. Shows
+  "Requires level X" if you can't use it yet, and is disabled in combat.
+- **Queue** – several drops line up with `<` and `>` buttons. Items you sell,
+  bank or equip drop out on their own.
+- **Combat** – the window hides during combat and returns afterwards.
+
 ## Install
 
 1. **Download** [LootCompare.zip](https://github.com/Jartin47/LootCompare/raw/main/LootCompare.zip).
@@ -32,26 +74,6 @@ pops up a small window comparing it against what you have equipped in that slot.
 
 To update, delete the old `AddOns\LootCompare` folder and repeat the steps
 above. Your settings are kept.
-
-## What it shows
-
-- The looted item and the equipped item, with item levels and the difference
-- Every stat you would gain (green) or lose (red) by equipping it
-- For rings, trinkets and dual-wielded weapons, the comparison is against the
-  weaker of the pair
-- For a two-hander, the comparison is against your main hand and off hand together
-
-## What it does
-
-- **Equip button** – equips the item straight from the window. Shows
-  "Requires level X" if you can't use it yet, and is disabled in combat.
-- **Upgrade filter** – only likely upgrades pop up, judged per slot against what
-  you're wearing. Grey and white items still appear while you're wearing greys
-  and whites, and stop once that slot has something better.
-- **Class filter** – gear your class can't use is ignored.
-- **Queue** – several drops line up with `<` and `>` buttons. Items you sell,
-  bank or equip drop out on their own.
-- **Combat** – the window hides during combat and returns afterwards.
 
 ## Controls
 

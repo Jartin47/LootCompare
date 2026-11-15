@@ -128,10 +128,20 @@ local function StatsFor(links)
     return total
 end
 
+-- Returns the display name, and whether it came from the game's own text.
 local function StatName(key)
     local name = _G[key]
-    if type(name) == "string" and name ~= "" then return name end
-    return (key:gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_", " "))
+    if type(name) == "string" and name ~= "" then
+        -- Some game text is lower case ("damage per second"); capitalise
+        -- each word so every line reads the same way.
+        name = name:gsub("(%a)([%w']*)", function(first, rest) return first:upper() .. rest end)
+        return name, true
+    end
+    -- No game text for this key: turn ITEM_MOD_NATURE_RESISTANCE_SHORT
+    -- into "Nature Resistance"
+    name = key:gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_NAME$", ""):gsub("_", " "):lower()
+    name = name:gsub("(%a)(%a*)", function(first, rest) return first:upper() .. rest end)
+    return name, false
 end
 
 local function FormatNum(v)
@@ -146,13 +156,32 @@ local function BuildDiffLines(newStats, oldStats)
     for k in pairs(newStats) do if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end end
     for k in pairs(oldStats) do if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end end
 
-    local ups, downs = {}, {}
+    -- The game can report one stat under two keys (e.g. a resistance as both
+    -- RESISTANCE3_NAME and ITEM_MOD_NATURE_RESISTANCE_SHORT), so merge lines
+    -- that would read the same.
+    local merged, byName = {}, {}
     for _, k in ipairs(keys) do
         local d = (newStats[k] or 0) - (oldStats[k] or 0)
         if math.abs(d) > 0.05 then
-            local line = { name = StatName(k), d = d }
-            if d > 0 then ups[#ups + 1] = line else downs[#downs + 1] = line end
+            local name, fromGame = StatName(k)
+            local id = name:lower()
+            local line = byName[id]
+            if not line then
+                line = { name = name, d = d, fromGame = fromGame }
+                byName[id] = line
+                merged[#merged + 1] = line
+            else
+                if fromGame and not line.fromGame then
+                    line.name, line.fromGame = name, true
+                end
+                if math.abs(d) > math.abs(line.d) then line.d = d end
+            end
         end
+    end
+
+    local ups, downs = {}, {}
+    for _, line in ipairs(merged) do
+        if line.d > 0 then ups[#ups + 1] = line else downs[#downs + 1] = line end
     end
     table.sort(ups, function(a, b) return a.name < b.name end)
     table.sort(downs, function(a, b) return a.name < b.name end)

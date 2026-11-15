@@ -31,6 +31,16 @@ For rings, trinkets and dual-wielded weapons, the drop is judged against the
 weaker of the pair. Gear your class can't use never pops up. Type `/lcomp filter`
 to turn the filter off and see every usable drop.
 
+## What's new
+
+**1.5.1**
+
+- New option: count enchants in the comparison (on by default; toggle with
+  `/lcomp enchants` or the options window)
+- Enchant stats are added to the item's stat lines, including enchants that
+  give several stats
+- Enchants with an effect instead of stats show as "Losing <name>"
+
 ## What it shows
 
 - The looted item and the equipped item, with item levels and the difference

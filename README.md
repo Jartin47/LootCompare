@@ -46,7 +46,11 @@ to turn the filter off and see every usable drop.
 - **Queue** – several drops line up with `<` and `>` buttons. Items you sell,
   bank or equip drop out on their own.
 - **Combat** – the window hides during combat and returns afterwards.
-- **Options window** – tick boxes for popups, the upgrade filter, hiding in
+- **Enchants** – enchants count in the comparison. Stats from an enchant
+  (such as "Stamina +1 and Armor +8") are added to that item's stat lines, and
+  an enchant with an effect instead of stats is listed as "Losing Crusader".
+  Turn this off to compare the items' own stats only.
+- **Options window** – tick boxes for popups, the upgrade filter, enchants, hiding in
   combat and the minimap button, plus buttons to preview the window and reset
   its position. Open it from the minimap button, by typing `/lcomp`, or from
   the game's Options > AddOns list.
@@ -96,6 +100,7 @@ above. Your settings are kept.
 | `/lcomp minimap` | Show or hide the minimap button |
 | `/lcomp test` | Preview using up to 3 items from your bags |
 | `/lcomp filter` | Toggle the upgrade filter |
+| `/lcomp enchants` | Toggle counting enchants in the comparison |
 | `/lcomp combat` | Toggle hiding the window during combat |
 | `/lcomp toggle` | Turn popups on or off |
 | `/lcomp reset` | Reset the window position |

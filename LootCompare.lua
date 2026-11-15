@@ -114,18 +114,8 @@ end
 ---------------------------------------------------------------------------
 -- Stats
 ---------------------------------------------------------------------------
-local function StatsFor(links)
-    local total = {}
-    for i = 1, 2 do
-        local link = links[i]
-        if link then
-            local s = C_Item.GetItemStats(link)
-            if s then
-                for k, v in pairs(s) do total[k] = (total[k] or 0) + v end
-            end
-        end
-    end
-    return total
+local function TitleCase(text)
+    return (text:gsub("(%a)([%w']*)", function(first, rest) return first:upper() .. rest end))
 end
 
 -- Returns the display name, and whether it came from the game's own text.
@@ -151,37 +141,34 @@ local function FormatNum(v)
     return tostring(math.floor(v + 0.5))
 end
 
-local function BuildDiffLines(newStats, oldStats)
-    local keys, seenKey = {}, {}
-    for k in pairs(newStats) do if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end end
-    for k in pairs(oldStats) do if not seenKey[k] then seenKey[k] = true; keys[#keys + 1] = k end end
-
-    -- The game can report one stat under two keys (e.g. a resistance as both
-    -- RESISTANCE3_NAME and ITEM_MOD_NATURE_RESISTANCE_SHORT), so merge lines
-    -- that would read the same.
-    local merged, byName = {}, {}
-    for _, k in ipairs(keys) do
-        local d = (newStats[k] or 0) - (oldStats[k] or 0)
-        if math.abs(d) > 0.05 then
-            local name, fromGame = StatName(k)
-            local id = name:lower()
-            local line = byName[id]
-            if not line then
-                line = { name = name, d = d, fromGame = fromGame }
-                byName[id] = line
-                merged[#merged + 1] = line
-            else
-                if fromGame and not line.fromGame then
-                    line.name, line.fromGame = name, true
-                end
-                if math.abs(d) > math.abs(line.d) then line.d = d end
-            end
-        end
+-- Stats are tracked by display name (lower-cased) rather than by the game's
+-- internal key, because the game can report one stat under two keys (e.g. a
+-- resistance as both RESISTANCE3_NAME and ITEM_MOD_NATURE_RESISTANCE_SHORT)
+-- and because enchants are read as text.
+local displayName = {}   -- id -> { name =, fromGame = }
+local function StatId(name, fromGame)
+    local id = name:lower()
+    local known = displayName[id]
+    if not known or (fromGame and not known.fromGame) then
+        displayName[id] = { name = name, fromGame = fromGame }
     end
+    return id
+end
+
+-- newStats/oldStats: { [stat id] = value }. gained/lost: enchant effects
+-- that aren't a plain number (e.g. a weapon proc), as text.
+local function BuildDiffLines(newStats, oldStats, gained, lost)
+    local ids, seenId = {}, {}
+    for id in pairs(newStats) do if not seenId[id] then seenId[id] = true; ids[#ids + 1] = id end end
+    for id in pairs(oldStats) do if not seenId[id] then seenId[id] = true; ids[#ids + 1] = id end end
 
     local ups, downs = {}, {}
-    for _, line in ipairs(merged) do
-        if line.d > 0 then ups[#ups + 1] = line else downs[#downs + 1] = line end
+    for _, id in ipairs(ids) do
+        local d = (newStats[id] or 0) - (oldStats[id] or 0)
+        if math.abs(d) > 0.05 then
+            local line = { name = displayName[id].name, d = d }
+            if d > 0 then ups[#ups + 1] = line else downs[#downs + 1] = line end
+        end
     end
     table.sort(ups, function(a, b) return a.name < b.name end)
     table.sort(downs, function(a, b) return a.name < b.name end)
@@ -189,6 +176,23 @@ local function BuildDiffLines(newStats, oldStats)
     local out = {}
     for _, l in ipairs(ups) do out[#out + 1] = "|cff20ff20+" .. FormatNum(l.d) .. " " .. l.name .. "|r" end
     for _, l in ipairs(downs) do out[#out + 1] = "|cffff4040" .. FormatNum(l.d) .. " " .. l.name .. "|r" end
+
+    -- The same enchant on both sides cancels out
+    local kept = {}
+    for _, t in ipairs(lost or {}) do kept[t] = (kept[t] or 0) + 1 end
+    for _, t in ipairs(gained or {}) do
+        if kept[t] and kept[t] > 0 then
+            kept[t] = kept[t] - 1
+        else
+            out[#out + 1] = "|cff20ff20Gaining " .. t .. "|r"
+        end
+    end
+    for _, t in ipairs(lost or {}) do
+        if kept[t] and kept[t] > 0 then
+            kept[t] = kept[t] - 1
+            out[#out + 1] = "|cffff4040Losing " .. t .. "|r"
+        end
+    end
     return out
 end
 
@@ -261,6 +265,135 @@ local function ClassCanUse(link)
     end
     scanTip:Hide()
     return true
+end
+
+---------------------------------------------------------------------------
+-- Enchants. The game has no call for "what does this enchant give", so we
+-- read the item's tooltip with and without its enchant: whatever lines only
+-- the enchanted tooltip has are the enchant.
+---------------------------------------------------------------------------
+-- Returns the enchant ID (nil if none) and the link with the enchant removed.
+local function SplitEnchant(link)
+    local pre, id, enchant, rest = link:match("^(.-item:)(%-?%d+):(%d*)(.*)$")
+    if not pre or enchant == "" or enchant == "0" then return nil, link end
+    return tonumber(enchant), pre .. id .. ":" .. rest
+end
+
+local function CleanLine(text)
+    if type(text) ~= "string" then return nil end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*(.-)%s*$")
+    if text == "" then return nil end
+    return text
+end
+
+local function TooltipLines(link)
+    local lines = {}
+    if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+        local ok, data = pcall(C_TooltipInfo.GetHyperlink, link)
+        if ok and data and data.lines then
+            for _, line in ipairs(data.lines) do
+                local t = CleanLine(line.leftText)
+                if t then lines[#lines + 1] = t end
+            end
+            if #lines > 0 then return lines end
+        end
+    end
+    if not scanTip then
+        scanTip = CreateFrame("GameTooltip", "LootCompareScanTip", nil, "GameTooltipTemplate")
+    end
+    scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    scanTip:ClearLines()
+    if not pcall(scanTip.SetHyperlink, scanTip, link) then
+        scanTip:Hide()
+        return nil
+    end
+    for i = 1, scanTip:NumLines() do
+        local fs = _G["LootCompareScanTipTextLeft" .. i]
+        local t = fs and CleanLine(fs:GetText())
+        if t then lines[#lines + 1] = t end
+    end
+    scanTip:Hide()
+    return #lines > 0 and lines or nil
+end
+
+-- Returns { stats = { {name=, value=}, ... }, text = { "Crusader", ... } }
+local enchantCache = {}
+local NO_ENCHANT = { stats = {}, text = {} }
+local function EnchantEffects(link)
+    local enchantID, bare = SplitEnchant(link)
+    if not enchantID then return NO_ENCHANT end
+    if enchantCache[link] then return enchantCache[link] end
+
+    local with, without = TooltipLines(link), TooltipLines(bare)
+    -- If either tooltip isn't loaded yet, or they differ by more than an
+    -- enchant could explain, don't guess (and don't cache; try again later).
+    if not with or not without or #with - #without < 1 or #with - #without > 3 then
+        return NO_ENCHANT
+    end
+
+    local remaining = {}
+    for _, t in ipairs(without) do remaining[t] = (remaining[t] or 0) + 1 end
+    local result = { stats = {}, text = {} }
+    for _, t in ipairs(with) do
+        if remaining[t] and remaining[t] > 0 then
+            remaining[t] = remaining[t] - 1
+        else
+            t = t:gsub("^Enchanted: ", "")
+            -- One enchant can give several stats: "Stamina +1 and Armor +8".
+            -- Split it up; if every part is "<stat> +N" or "+N <stat>", they
+            -- are stats, otherwise the whole line is an effect (e.g. Crusader).
+            local parts, allStats = {}, true
+            local list = t:gsub(" and ", "\n"):gsub(" & ", "\n"):gsub(", ", "\n"):gsub(" / ", "\n")
+            for chunk in list:gmatch("[^\n]+") do
+                local part = chunk:match("^%s*(.-)%s*$")
+                local value, name = part:match("^%+(%d+%.?%d*) (.+)$")       -- "+7 Stamina"
+                if not value then name, value = part:match("^(.-) %+(%d+%.?%d*)$") end  -- "Stamina +7"
+                if value and name ~= "" and not name:find("[%%%+%d]") then
+                    parts[#parts + 1] = { name = name, value = tonumber(value) }
+                else
+                    allStats = false
+                end
+            end
+            if allStats and #parts > 0 then
+                for _, p in ipairs(parts) do result.stats[#result.stats + 1] = p end
+            else
+                result.text[#result.text + 1] = t
+            end
+        end
+    end
+    enchantCache[link] = result
+    return result
+end
+
+-- Returns the combined stats of up to two items as { [stat id] = value },
+-- plus any enchant effects that aren't a plain number.
+local function StatsFor(links)
+    local total, notes = {}, {}
+    for i = 1, 2 do
+        local link = links[i]
+        if link then
+            local _, bare = SplitEnchant(link)
+            local s = C_Item.GetItemStats(bare) or C_Item.GetItemStats(link)
+            local item = {}
+            if s then
+                for k, v in pairs(s) do
+                    local id = StatId(StatName(k))
+                    -- one stat under two keys: count it once
+                    if not item[id] or math.abs(v) > math.abs(item[id]) then item[id] = v end
+                end
+            end
+            if LootCompareDB.enchants then
+                local effects = EnchantEffects(link)
+                for _, e in ipairs(effects.stats) do
+                    local id = StatId(TitleCase(e.name), false)
+                    item[id] = (item[id] or 0) + e.value
+                end
+                for _, t in ipairs(effects.text) do notes[#notes + 1] = t end
+            end
+            for id, v in pairs(item) do total[id] = (total[id] or 0) + v end
+        end
+    end
+    return total, notes
 end
 
 ---------------------------------------------------------------------------
@@ -499,13 +632,15 @@ Render = function()
     end
 
     -- Stat differences
-    local newStats, oldStats = StatsFor({link}), StatsFor(oldLinks)
+    local newStats, gained = StatsFor({link})
+    local oldStats, lost = StatsFor(oldLinks)
     if oldLinks[2] then
         -- Adding main hand + off hand DPS together isn't a real number
-        newStats.ITEM_MOD_DAMAGE_PER_SECOND_SHORT = nil
-        oldStats.ITEM_MOD_DAMAGE_PER_SECOND_SHORT = nil
+        local dps = StatName("ITEM_MOD_DAMAGE_PER_SECOND_SHORT"):lower()
+        newStats[dps] = nil
+        oldStats[dps] = nil
     end
-    local lines = BuildDiffLines(newStats, oldStats)
+    local lines = BuildDiffLines(newStats, oldStats, gained, lost)
     if #lines == 0 then
         diffText:SetText("|cffaaaaaaNo stat change|r")
     else
@@ -746,7 +881,7 @@ end
 -- Options window
 ---------------------------------------------------------------------------
 local options = CreateFrame("Frame", "LootCompareOptionsFrame", UIParent, "BackdropTemplate")
-options:SetSize(300, 206)
+options:SetSize(300, 232)
 options:SetPoint("CENTER")
 options:SetBackdrop({
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -799,7 +934,10 @@ MakeCheck(-60, "Only show likely upgrades",
 MakeCheck(-86, "Hide the window during combat",
     function() return LootCompareDB.hideInCombat end,
     function(v) LootCompareDB.hideInCombat = v end)
-MakeCheck(-112, "Show the minimap button",
+MakeCheck(-112, "Count enchants in the comparison",
+    function() return LootCompareDB.enchants end,
+    function(v) LootCompareDB.enchants = v end)
+MakeCheck(-138, "Show the minimap button",
     function() return not LootCompareDB.hideMinimap end,
     function(v) LootCompareDB.hideMinimap = not v; ApplyMinimap() end)
 
@@ -878,6 +1016,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if LootCompareDB.enabled == nil then LootCompareDB.enabled = true end
         if LootCompareDB.hideInCombat == nil then LootCompareDB.hideInCombat = true end
         if LootCompareDB.filter == nil then LootCompareDB.filter = true end
+        if LootCompareDB.enchants == nil then LootCompareDB.enchants = true end
         InitMinimap()
         RegisterSettingsPanel()
         frame:ClearAllPoints()
@@ -933,6 +1072,11 @@ SlashCmdList.LOOTCOMPARE = function(msg)
         print(PREFIX .. "upgrade filter: " .. (LootCompareDB.filter
             and "ON (only likely upgrades pop up)" or "OFF (all usable gear pops up)"))
         RefreshOptions()
+    elseif msg == "enchants" then
+        LootCompareDB.enchants = not LootCompareDB.enchants
+        print(PREFIX .. "count enchants: " .. (LootCompareDB.enchants and "ON" or "OFF"))
+        if #queue > 0 then Render() end
+        RefreshOptions()
     elseif msg == "minimap" then
         LootCompareDB.hideMinimap = not LootCompareDB.hideMinimap
         ApplyMinimap()
@@ -969,6 +1113,8 @@ SlashCmdList.LOOTCOMPARE = function(msg)
             .. (LootCompareDB.hideInCombat and "ON" or "OFF") .. ")")
         print("  /lcomp filter - toggle the upgrade filter (currently "
             .. (LootCompareDB.filter and "ON" or "OFF") .. ")")
+        print("  /lcomp enchants - toggle counting enchants (currently "
+            .. (LootCompareDB.enchants and "ON" or "OFF") .. ")")
         print("  /lcomp toggle - turn popups on/off")
         print("  /lcomp reset  - reset window position")
     end
